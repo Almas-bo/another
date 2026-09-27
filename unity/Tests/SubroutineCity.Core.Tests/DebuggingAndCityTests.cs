@@ -154,7 +154,7 @@ namespace SubroutineCity.Core.Tests
         [Test]
         public void RecordsCompletionAndRoundTrips()
         {
-            var state = new ProgressState();
+            var state = new ProgressState { RepositoryPath = "C:\\Проекты\\another" };
             state.Level("powergrid-01").Draft = "package city.player;\n// «черновик»";
             var failed = ModelParser.ParseRunResponse(Fixtures.Read("run-tests-failed.json"));
             var success = ModelParser.ParseRunResponse(Fixtures.Read("run-success.json"));
@@ -168,6 +168,7 @@ namespace SubroutineCity.Core.Tests
             Assert.That(restored.Level("powergrid-01").Draft, Is.EqualTo("package city.player;\n// «черновик»"));
             Assert.That(restored.Level("water-01").Attempts, Is.EqualTo(2));
             Assert.That(restored.CompletedCount, Is.EqualTo(1));
+            Assert.That(restored.RepositoryPath, Is.EqualTo("C:\\Проекты\\another"));
         }
 
         [Test]

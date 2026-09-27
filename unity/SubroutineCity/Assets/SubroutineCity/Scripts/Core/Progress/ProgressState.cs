@@ -24,6 +24,9 @@ namespace SubroutineCity.Core.Progress
 
         public string ServerUrl = "http://127.0.0.1:8787";
 
+        /// <summary>Путь к репозиторию с сервером (для автозапуска, если Unity-проект лежит отдельно). Может быть пустым.</summary>
+        public string RepositoryPath = "";
+
         public LevelProgress Level(string levelId)
         {
             if (!_levels.TryGetValue(levelId, out LevelProgress progress))
@@ -89,6 +92,7 @@ namespace SubroutineCity.Core.Progress
             {
                 { "version", 1 },
                 { "serverUrl", ServerUrl },
+                { "repositoryPath", RepositoryPath },
                 { "levels", levels }
             });
         }
@@ -102,6 +106,7 @@ namespace SubroutineCity.Core.Progress
             {
                 var root = JsonValue.ParseObject(json);
                 state.ServerUrl = root.String("serverUrl", state.ServerUrl);
+                state.RepositoryPath = root.String("repositoryPath", "");
                 foreach (var level in root.Objects("levels"))
                 {
                     string id = level.String("levelId");

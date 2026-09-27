@@ -14,6 +14,7 @@
     <AssemblyName>SubroutineCity.Verify</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Editor/ использует UnityEditor.dll, которой нет в NuGet-пакете; там один файл настройки проекта. -->
     <Compile Include="../SubroutineCity/Assets/SubroutineCity/Scripts/**/*.cs" />
   </ItemGroup>
   <ItemGroup>
