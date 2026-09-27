@@ -3,6 +3,7 @@ package city.subroutine.sandbox.protocol;
 import city.subroutine.sandbox.api.CompilationDiagnostic;
 import city.subroutine.sandbox.api.EntryPoint;
 import city.subroutine.sandbox.api.ErrorReport;
+import city.subroutine.sandbox.api.ExecutionMode;
 import city.subroutine.sandbox.api.ExecutionRequest;
 import city.subroutine.sandbox.api.PolicyViolation;
 import city.subroutine.sandbox.api.SandboxLimits;
@@ -41,6 +42,8 @@ public final class WireCodec {
         out.writeString(request.playerPackage());
         out.writeStringList(request.allowedApiPackages());
         writeLimits(out, request.limits());
+        out.writeEnum(request.mode());
+        out.writeString(request.onlyTestId());
     }
 
     public static ExecutionRequest readRequest(WireInput in) throws IOException {
@@ -51,7 +54,10 @@ public final class WireCodec {
         String playerPackage = in.readRequiredString();
         List<String> apiPackages = in.readStringList();
         SandboxLimits limits = readLimits(in);
-        return new ExecutionRequest(requestId, sources, entryPoint, suite, playerPackage, apiPackages, limits);
+        ExecutionMode mode = in.readEnum(ExecutionMode.class);
+        String onlyTestId = in.readString();
+        return new ExecutionRequest(requestId, sources, entryPoint, suite, playerPackage, apiPackages, limits, mode,
+                onlyTestId);
     }
 
     private static void writeEntryPoint(WireOutput out, EntryPoint entryPoint) throws IOException {

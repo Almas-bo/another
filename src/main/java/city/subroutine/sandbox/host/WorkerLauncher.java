@@ -21,17 +21,28 @@ final class WorkerLauncher {
     }
 
     WorkerProcess launch(int heapMegabytes) throws IOException {
+        return launch(heapMegabytes, List.of(), true);
+    }
+
+    /**
+     * @param extraOptions дополнительные флаги JVM этого запуска (например, JDWP-агент отладки)
+     * @param prewarm      прогревать javac до HELLO (для пула — да, для отладки — нет)
+     */
+    WorkerProcess launch(int heapMegabytes, List<String> extraOptions, boolean prewarm) throws IOException {
         Files.createDirectories(config.workDirectoryRoot());
         Path workDirectory = Files.createTempDirectory(config.workDirectoryRoot(), "worker-");
         List<String> command = new ArrayList<>(config.commandPrefix());
         command.add(config.javaExecutable().toString());
         command.addAll(jvmOptions(heapMegabytes, workDirectory));
         command.addAll(config.extraJvmOptions());
+        command.addAll(extraOptions);
         command.add("-cp");
         command.add(String.join(File.pathSeparator,
                 config.workerClasspath().stream().map(p -> p.toAbsolutePath().toString()).toList()));
         command.add(WorkerMain.class.getName());
-        command.add(WorkerMain.PREWARM_FLAG);
+        if (prewarm) {
+            command.add(WorkerMain.PREWARM_FLAG);
+        }
 
         ProcessBuilder builder = new ProcessBuilder(command).directory(workDirectory.toFile());
         // Чистое окружение: никаких секретов хоста, никаких JAVA_TOOL_OPTIONS/агентов.

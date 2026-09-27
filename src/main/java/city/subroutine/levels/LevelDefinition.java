@@ -7,7 +7,7 @@ import city.subroutine.sandbox.api.SandboxLimits;
 import java.util.List;
 import java.util.Objects;
 
-/** Серверное описание уровня: контракт, набор тестов, разрешённый API и лимиты. */
+/** Серверное описание уровня: контракт, набор тестов, разрешённый API, лимиты и презентация. */
 public record LevelDefinition(
         String id,
         String title,
@@ -15,7 +15,8 @@ public record LevelDefinition(
         String testSuiteClass,
         String playerPackage,
         List<String> allowedApiPackages,
-        SandboxLimits limits) {
+        SandboxLimits limits,
+        LevelInfo info) {
 
     public LevelDefinition {
         Objects.requireNonNull(id, "id");
@@ -25,6 +26,7 @@ public record LevelDefinition(
         Objects.requireNonNull(playerPackage, "playerPackage");
         allowedApiPackages = List.copyOf(allowedApiPackages);
         Objects.requireNonNull(limits, "limits");
+        Objects.requireNonNull(info, "info");
     }
 
     /** Запрос из кода, пришедшего из редактора игрока. */

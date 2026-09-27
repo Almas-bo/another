@@ -1,6 +1,7 @@
 package city.subroutine.sandbox.worker;
 
 import city.subroutine.sandbox.api.ErrorReport;
+import city.subroutine.sandbox.api.ExecutionMode;
 import city.subroutine.sandbox.api.ExecutionRequest;
 import city.subroutine.sandbox.api.PolicyViolation;
 import city.subroutine.sandbox.api.TestOutcome;
@@ -79,6 +80,10 @@ final class WorkerSession {
             return finish(WorkerVerdict.CONTRACT_VIOLATION, e.getMessage(), null, WorkerMain.EXIT_OK);
         }
 
+        if (request.mode() == ExecutionMode.CHECK) {
+            return finish(WorkerVerdict.COMPLETED, null, null, WorkerMain.EXIT_OK);
+        }
+
         // --- 4. Набор тестов уровня
         List<TestCase> cases;
         try {
@@ -86,6 +91,13 @@ final class WorkerSession {
         } catch (SuiteLoader.SuiteException e) {
             return finish(WorkerVerdict.SANDBOX_FAILURE, e.getMessage(), Reports.of(e, request.playerPackage()),
                     WorkerMain.EXIT_OK);
+        }
+        if (request.onlyTestId() != null) {
+            cases = cases.stream().filter(c -> c.id().equals(request.onlyTestId())).toList();
+            if (cases.isEmpty()) {
+                return finish(WorkerVerdict.SANDBOX_FAILURE, "В наборе нет теста " + request.onlyTestId(), null,
+                        WorkerMain.EXIT_OK);
+            }
         }
         List<TestDescriptor> descriptors = cases.stream().map(c -> new TestDescriptor(c.id(), c.title())).toList();
         writer.send(FrameType.SUITE_STARTED, o -> WireCodec.writeDescriptors(o, descriptors));

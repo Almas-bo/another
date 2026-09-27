@@ -27,6 +27,7 @@ public final class RussianReportFormatter {
     public static String title(ExecutionStatus status) {
         return switch (status) {
             case SUCCESS -> "Все тесты пройдены";
+            case COMPILED -> "Код скомпилирован и соответствует контракту";
             case TESTS_FAILED -> "Часть тестов не пройдена";
             case COMPILATION_ERROR -> "Ошибка компиляции";
             case POLICY_VIOLATION -> "Нарушение правил песочницы";

@@ -20,6 +20,12 @@ public interface CodeRunnerService extends AutoCloseable {
      */
     ExecutionResult execute(ExecutionRequest request) throws InterruptedException;
 
+    /**
+     * Отладочный запуск одного теста с записью трассы выполнения кода игрока
+     * (строки, глубина стека, локальные переменные). Лимиты времени увеличены: запись замедляет исполнение.
+     */
+    DebugResult debug(ExecutionRequest request, String testId) throws InterruptedException;
+
     /** Асинхронный запуск (для RPC-слоя). Отмена future не прерывает уже запущенную песочницу раньше её лимитов. */
     CompletableFuture<ExecutionResult> executeAsync(ExecutionRequest request);
 

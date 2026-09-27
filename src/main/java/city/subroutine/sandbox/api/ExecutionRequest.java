@@ -15,6 +15,8 @@ import java.util.Set;
  * @param playerPackage      пакет, в котором обязан лежать весь код игрока
  * @param allowedApiPackages пакеты API уровня, к которым игроку разрешено обращаться (интерфейсы, модели)
  * @param limits             лимиты ресурсов
+ * @param mode               полный прогон или только проверка
+ * @param onlyTestId         если не {@code null} — исполнить только тест с этим id (режим отладки)
  */
 public record ExecutionRequest(
         String requestId,
@@ -23,7 +25,9 @@ public record ExecutionRequest(
         String testSuiteClass,
         String playerPackage,
         List<String> allowedApiPackages,
-        SandboxLimits limits) {
+        SandboxLimits limits,
+        ExecutionMode mode,
+        String onlyTestId) {
 
     public static final int MAX_SOURCES = 32;
 
@@ -50,6 +54,32 @@ public record ExecutionRequest(
             JavaNames.requirePackageName(pkg, "allowedApiPackages");
         }
         Objects.requireNonNull(limits, "limits");
+        Objects.requireNonNull(mode, "mode");
+        if (onlyTestId != null && (onlyTestId.isBlank() || onlyTestId.length() > 64)) {
+            throw new IllegalArgumentException("onlyTestId некорректен");
+        }
+    }
+
+    /** Полный прогон всех тестов. */
+    public ExecutionRequest(String requestId, List<SourceUnit> sources, EntryPoint entryPoint, String testSuiteClass,
+                            String playerPackage, List<String> allowedApiPackages, SandboxLimits limits) {
+        this(requestId, sources, entryPoint, testSuiteClass, playerPackage, allowedApiPackages, limits,
+                ExecutionMode.FULL, null);
+    }
+
+    public ExecutionRequest withMode(ExecutionMode value) {
+        return new ExecutionRequest(requestId, sources, entryPoint, testSuiteClass, playerPackage, allowedApiPackages,
+                limits, value, onlyTestId);
+    }
+
+    public ExecutionRequest withOnlyTestId(String value) {
+        return new ExecutionRequest(requestId, sources, entryPoint, testSuiteClass, playerPackage, allowedApiPackages,
+                limits, mode, value);
+    }
+
+    public ExecutionRequest withLimits(SandboxLimits value) {
+        return new ExecutionRequest(requestId, sources, entryPoint, testSuiteClass, playerPackage, allowedApiPackages,
+                value, mode, onlyTestId);
     }
 
     /** Типичный случай: весь код игрока — одна строка из редактора, класс совпадает с точкой входа. */

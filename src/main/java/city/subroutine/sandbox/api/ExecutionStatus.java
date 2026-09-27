@@ -4,6 +4,8 @@ package city.subroutine.sandbox.api;
 public enum ExecutionStatus {
     /** Все тесты пройдены. */
     SUCCESS,
+    /** Режим CHECK: код скомпилирован, безопасен и соответствует контракту (тесты не запускались). */
+    COMPILED,
     /** Код исполнился, но часть тестов не пройдена. */
     TESTS_FAILED,
     COMPILATION_ERROR,

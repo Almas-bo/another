@@ -3,6 +3,7 @@ package city.subroutine.sandbox.host;
 import city.subroutine.sandbox.api.CompilationDiagnostic;
 import city.subroutine.sandbox.api.ErrorReport;
 import city.subroutine.sandbox.api.ExecutionMetrics;
+import city.subroutine.sandbox.api.ExecutionMode;
 import city.subroutine.sandbox.api.ExecutionRequest;
 import city.subroutine.sandbox.api.ExecutionResult;
 import city.subroutine.sandbox.api.ExecutionStatus;
@@ -147,7 +148,9 @@ final class ExecutionSession {
             detail = finished.detail();
             fatal = finished.fatalError();
             status = switch (finished.verdict()) {
-                case COMPLETED -> allPassed() ? ExecutionStatus.SUCCESS : ExecutionStatus.TESTS_FAILED;
+                case COMPLETED -> request.mode() == ExecutionMode.CHECK
+                        ? ExecutionStatus.COMPILED
+                        : allPassed() ? ExecutionStatus.SUCCESS : ExecutionStatus.TESTS_FAILED;
                 case COMPILATION_ERROR -> ExecutionStatus.COMPILATION_ERROR;
                 case POLICY_VIOLATION -> ExecutionStatus.POLICY_VIOLATION;
                 case CONTRACT_VIOLATION -> ExecutionStatus.CONTRACT_VIOLATION;
