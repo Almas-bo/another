@@ -14,3 +14,6 @@ unity/SubroutineCity/UserSettings/
 unity/SubroutineCity/Build/
 unity/SubroutineCity/*.csproj
 unity/SubroutineCity/*.sln
+
+# JDK, установленный скриптами или игрой (Eclipse Temurin 21)
+.jdk/

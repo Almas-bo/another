@@ -21,47 +21,41 @@
 
 ## Быстрый старт
 
-### 1. Сервер песочницы
+1. Установите [Unity](https://unity.com/download) (2021.3 LTS, 2022.3 LTS или Unity 6).
+2. Unity Hub → **Add → Add project from disk** → папка `unity/SubroutineCity`.
+   Если версия редактора другая, Hub предложит открыть проект в вашей — соглашайтесь.
+3. Нажмите **Play**.
 
-Нужен **JDK 21+** (именно JDK: серверу нужен javac). Maven не обязателен.
+Остальное игра делает сама и показывает прогресс на экране:
+
+- **Java.** Игра ищет JDK 21: в `.jdk/` репозитория, в `JAVA_HOME`, в `PATH` и в стандартных каталогах ОС.
+  JRE без javac и старые версии пропускаются. Если подходящего JDK нет, игра предложит одной кнопкой
+  скачать Eclipse Temurin 21 (≈200 МБ) с официального сервера Adoptium. Установка идёт только в `.jdk/`
+  репозитория, системные настройки не меняются. Контрольная сумма SHA-256 проверяется обязательно:
+  без неё или при несовпадении установка отменяется, и на диске ничего не остаётся.
+- **Сервер.** Собирается из исходников при первом запуске и пересобирается сам, если исходники изменились
+  (метка `target/classes/.build-stamp`).
+- **HTTP в Unity 2022+.** Разрешается автоматически скриптом `Editor/ProjectSetup.cs`: сервер локальный.
+
+Игра собирает себя кодом при старте любой сцены — префабы и настройка сцены не нужны.
+
+Если проект лежит не в репозитории (вы скопировали `Assets/SubroutineCity` в свой проект — лучше из шаблона
+**3D (Built-In Render Pipeline)**), укажите путь к репозиторию в игре: «Настройки» → «Путь к репозиторию».
+
+### Без Unity
+
+Скрипты делают то же самое: находят JDK или, с вашего согласия, скачивают Temurin 21 в общий с игрой
+каталог `.jdk/`, а сервер собирают инкрементально.
 
 ```bash
-./scripts/build.sh          # Windows: scripts\build.bat      — сборка в target/classes
-./scripts/run-server.sh     # Windows: scripts\run-server.bat — http://127.0.0.1:8787
-```
-
-Проверка без Unity — консольный прогон решения:
-
-```bash
+./scripts/run-server.sh     # Windows: scripts\run-server.bat — сервер на http://127.0.0.1:8787
+./scripts/build.sh          # Windows: scripts\build.bat      — только сборка (--force / -Force — заново)
 java -cp target/classes city.subroutine.sandbox.cli.RunnerCli powergrid-01 examples/powergrid/PowerGridBuggy.java
 ```
 
-### 2. Игра в Unity
-
-Проверенные целевые версии: **Unity 2021.3 LTS, 2022.3 LTS, Unity 6** (Built-in Render Pipeline).
-
-**Вариант А — открыть проект из репозитория** (сервер запустится сам):
-
-1. Соберите сервер: `scripts/build.sh` (или `build.bat`).
-2. Unity Hub → **Add → Add project from disk** → папка `unity/SubroutineCity`.
-   Если версия редактора другая, Hub предложит открыть проект в вашей — соглашайтесь.
-3. Откройте любую сцену (или пустую) и нажмите **Play**.
-
-Игра соберёт себя кодом: префабы и настройка сцены не нужны. Если сервер не запущен, клиент сам
-стартует его из `target/classes` (нужны `java` в PATH или `JAVA_HOME`).
-
-**Вариант Б — в своём проекте:**
-
-1. Создайте проект по шаблону **3D (Built-In Render Pipeline)**.
-2. Скопируйте папку `unity/SubroutineCity/Assets/SubroutineCity` в `Assets/` вашего проекта.
-3. Запустите сервер: `scripts/run-server.sh`. Либо укажите путь к репозиторию в игре:
-   «Настройки» → «Путь к репозиторию».
-4. Нажмите **Play**.
-
-Unity 2022+ по умолчанию запрещает HTTP-запросы. Скрипт `Editor/ProjectSetup.cs` разрешает их
-автоматически (`Allow downloads over HTTP = Always allowed`), потому что сервер локальный.
-Если игра пишет «Unity запретил HTTP-запрос», включите эту настройку вручную:
-Project Settings → Player → Other Settings.
+Для CI и неинтерактивного запуска: `SUBROUTINE_AUTO_JDK=1` — скачивать без вопроса;
+`SUBROUTINE_JDK_URL` — своё зеркало архива (рядом должен лежать `<адрес>.sha256.txt`).
+Maven нужен только для `mvn test`.
 
 ### Управление
 
@@ -159,7 +153,7 @@ POST /api/v1/levels/{id}/debug      {"code", "testId"}  → {"result", "trace": 
 
 ```bash
 mvn test                                          # 87 тестов сервера: песочница, уровни, HTTP API, JSON
-dotnet test unity/Tests/SubroutineCity.Core.Tests # 46 тестов логики клиента на реальных ответах сервера
+dotnet test unity/Tests/SubroutineCity.Core.Tests # 58 тестов логики клиента: ответы сервера, IDE, отладчик, автозапуск (поиск/установка JDK, сборка, старт сервера)
 dotnet build unity/Verify                         # весь C# клиента против UnityEngine 2021.3, C# 9, предупреждения = ошибки
 python3 unity/Verify/shaders/check_shaders.py     # HLSL всех шейдеров через glslangValidator (20 стадий)
 scripts/run-server.sh &  dotnet run --project unity/Tests/SubroutineCity.E2E   # сквозной сценарий клиент ↔ сервер

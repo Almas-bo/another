@@ -1,155 +1,59 @@
-using System;
-using System.Diagnostics;
+using System.Collections.Generic;
 using System.IO;
-using System.Text;
+using SubroutineCity.Core.Launch;
 using UnityEngine;
 
 namespace SubroutineCity.Net
 {
     /// <summary>
-    /// Автозапуск локального сервера песочницы (Java), если он не запущен. Ищет собранные классы сервера:
-    /// рядом с репозиторием (unity/SubroutineCity → ../../target/classes) или в StreamingAssets/server/classes.
-    /// Работает на настольных платформах; на остальных сервер запускается отдельно.
+    /// Unity-часть автозапуска сервера: где искать репозиторий, собранный сервер и куда ставить JDK.
+    /// Сама логика (поиск/скачивание JDK, сборка, запуск) — в Core.Launch и покрыта тестами.
     /// </summary>
-    public sealed class LocalServerLauncher : IDisposable
+    public static class LocalServerLauncher
     {
-        private const int MaxLogChars = 8000;
-        private const string ServerMainClass = "city.subroutine.server.GameServer";
-
-        private readonly StringBuilder _log = new StringBuilder();
-        private Process _process;
-
-        public bool Started => _process != null;
-
-        public bool Running
-        {
-            get
-            {
-                try
-                {
-                    return _process != null && !_process.HasExited;
-                }
-                catch (InvalidOperationException)
-                {
-                    return false;
-                }
-            }
-        }
-
-        public string Log
-        {
-            get
-            {
-                lock (_log) return _log.ToString();
-            }
-        }
-
         public static bool Supported =>
             Application.platform == RuntimePlatform.WindowsEditor || Application.platform == RuntimePlatform.WindowsPlayer
             || Application.platform == RuntimePlatform.OSXEditor || Application.platform == RuntimePlatform.OSXPlayer
             || Application.platform == RuntimePlatform.LinuxEditor || Application.platform == RuntimePlatform.LinuxPlayer;
 
-        /// <summary>Каталог с классами сервера или null.</summary>
-        public static string FindServerClasses(string extraRepositoryRoot)
+        /// <summary>
+        /// Корень репозитория с исходниками сервера: путь из настроек или репозиторий, в котором лежит этот Unity-проект
+        /// (unity/SubroutineCity/Assets → ../../..). null — исходников рядом нет.
+        /// </summary>
+        public static string FindRepository(string configured)
         {
-            var candidates = new System.Collections.Generic.List<string>();
-            if (!string.IsNullOrEmpty(extraRepositoryRoot)) candidates.Add(Path.Combine(extraRepositoryRoot, "target", "classes"));
-            candidates.Add(Path.Combine(Application.dataPath, "..", "..", "..", "target", "classes"));
-            candidates.Add(Path.Combine(Application.streamingAssetsPath, "server", "classes"));
+            var candidates = new List<string>();
+            if (!string.IsNullOrWhiteSpace(configured)) candidates.Add(configured.Trim());
+            candidates.Add(Path.Combine(Application.dataPath, "..", "..", ".."));
             foreach (string candidate in candidates)
             {
                 try
                 {
                     string full = Path.GetFullPath(candidate);
-                    if (Directory.Exists(Path.Combine(full, "city", "subroutine", "server"))) return full;
+                    if (ServerBuilder.HasSources(full)) return full;
                 }
-                catch (Exception)
+                catch (System.Exception)
                 {
-                    // некорректный путь из настроек — пропускаем
+                    // некорректный путь в настройках
                 }
             }
             return null;
         }
 
-        public bool TryStart(int port, string extraRepositoryRoot, out string error)
+        public static LaunchOptions Options(string configuredRepository, int port)
         {
-            error = null;
-            if (!Supported)
+            string repository = FindRepository(configuredRepository);
+            string personalJdk = Path.Combine(Application.persistentDataPath, "jdk");
+            var options = new LaunchOptions
             {
-                error = "Автозапуск сервера недоступен на этой платформе.";
-                return false;
-            }
-            string classes = FindServerClasses(extraRepositoryRoot);
-            if (classes == null)
-            {
-                error = "Не найдены классы сервера (target/classes). Соберите сервер: scripts/build.sh или scripts\\build.bat, "
-                        + "либо укажите путь к репозиторию в настройках.";
-                return false;
-            }
-            var start = new ProcessStartInfo
-            {
-                FileName = FindJava(),
-                Arguments = "-cp \"" + classes + "\" " + ServerMainClass + " --port " + port,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                StandardOutputEncoding = Encoding.UTF8,
-                StandardErrorEncoding = Encoding.UTF8
+                Repository = repository,
+                Port = port,
+                // Без репозитория — готовый сервер из StreamingAssets (сборка игры) и JDK в данных пользователя.
+                ClassesDirectory = repository == null ? Path.Combine(Application.streamingAssetsPath, "server", "classes") : null,
+                ManagedJdkRoot = repository == null ? personalJdk : null
             };
-            try
-            {
-                _process = new Process { StartInfo = start, EnableRaisingEvents = true };
-                _process.OutputDataReceived += (_, e) => Append(e.Data);
-                _process.ErrorDataReceived += (_, e) => Append(e.Data);
-                _process.Start();
-                _process.BeginOutputReadLine();
-                _process.BeginErrorReadLine();
-                Append("Запущен: " + start.FileName + " " + start.Arguments);
-                return true;
-            }
-            catch (Exception e)
-            {
-                _process = null;
-                error = "Не удалось запустить Java (" + e.Message + "). Установите JDK 21 и задайте JAVA_HOME.";
-                return false;
-            }
-        }
-
-        public void Dispose()
-        {
-            try
-            {
-                if (_process != null && !_process.HasExited) _process.Kill();
-            }
-            catch (Exception)
-            {
-                // процесс уже завершён
-            }
-            _process = null;
-        }
-
-        private static string FindJava()
-        {
-            string executable = Application.platform == RuntimePlatform.WindowsEditor
-                                || Application.platform == RuntimePlatform.WindowsPlayer ? "java.exe" : "java";
-            string home = Environment.GetEnvironmentVariable("JAVA_HOME");
-            if (!string.IsNullOrEmpty(home))
-            {
-                string path = Path.Combine(home, "bin", executable);
-                if (File.Exists(path)) return path;
-            }
-            return executable;
-        }
-
-        private void Append(string line)
-        {
-            if (line == null) return;
-            lock (_log)
-            {
-                _log.AppendLine(line);
-                if (_log.Length > MaxLogChars) _log.Remove(0, _log.Length - MaxLogChars);
-            }
+            options.ExtraJdkRoots.Add(personalJdk);
+            return options;
         }
     }
 }

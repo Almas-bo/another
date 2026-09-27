@@ -59,6 +59,7 @@ namespace SubroutineCity.UI
             switch (_root.State)
             {
                 case GameState.Connecting: DrawConnecting(); break;
+                case GameState.NeedsJdk: DrawNeedsJdk(); break;
                 case GameState.Offline: DrawOffline(); break;
                 case GameState.Menu: DrawMenu(); break;
                 case GameState.Level: DrawLevel(); break;
@@ -94,6 +95,37 @@ namespace SubroutineCity.UI
             GUILayout.Label(Ru.Ui.Tagline, _theme.BodyDim);
             GUILayout.Space(18f);
             GUILayout.Label(_root.StatusMessage + Dots(), _theme.Body);
+            float progress = _root.Pipeline != null && _root.Pipeline.Stage == Core.Launch.LaunchStage.DownloadingJdk ? _root.Pipeline.Progress : -1f;
+            if (progress >= 0f)
+            {
+                Rect bar = GUILayoutUtility.GetRect(10f, 14f, GUILayout.ExpandWidth(true));
+                _theme.FillRect(bar, new Color(0.13f, 0.88f, 1f, 0.15f));
+                _theme.FillRect(new Rect(bar.x, bar.y, bar.width * progress, bar.height), new Color(0.13f, 0.88f, 1f, 0.9f));
+                GUILayout.Label(Mathf.RoundToInt(progress * 100f) + " %", _theme.SmallDim);
+            }
+            GUILayout.EndArea();
+        }
+
+        private void DrawNeedsJdk()
+        {
+            var panel = Centered(760f, 430f);
+            Block(panel);
+            GUI.Box(panel, GUIContent.none, _theme.Panel);
+            GUILayout.BeginArea(Inset(panel, 24f));
+            GUILayout.Label(Ru.Ui.GameTitle, _theme.Title);
+            GUILayout.Space(6f);
+            GUILayout.Label("Для песочницы нужна Java 21 (JDK)", _theme.Heading);
+            GUILayout.Label("Код игрока компилируется и исполняется настоящей JVM. Подходящий JDK на компьютере не найден "
+                            + "(проверены JAVA_HOME, PATH и стандартные каталоги).", _theme.Body);
+            GUILayout.Space(10f);
+            if (GUILayout.Button("Установить Java 21 автоматически", _theme.ButtonPrimary, GUILayout.Height(46f)))
+                Defer(_root.InstallJdk);
+            GUILayout.Label("Eclipse Temurin 21 (OpenJDK) с официального сервера Adoptium, около 200 МБ. Контрольная сумма "
+                            + "SHA-256 проверяется. Установка только для игры, в " + (_root.Pipeline?.ManagedJdkRoot ?? "каталог игры")
+                            + " — системные настройки не меняются.", _theme.SmallDim);
+            GUILayout.Space(10f);
+            if (GUILayout.Button("Я установлю JDK 21 сам — проверить снова", _theme.Button, GUILayout.Height(36f)))
+                Defer(() => _root.Reconnect(_root.Progress.ServerUrl, _root.Progress.RepositoryPath));
             GUILayout.EndArea();
         }
 
@@ -110,7 +142,7 @@ namespace SubroutineCity.UI
             GUILayout.Label(Ru.Ui.ServerHint, _theme.BodyDim);
             GUILayout.Space(10f);
             DrawServerSettings();
-            string log = _root.Launcher.Log;
+            string log = _root.LaunchLog;
             if (!string.IsNullOrEmpty(log))
             {
                 GUILayout.Space(8f);

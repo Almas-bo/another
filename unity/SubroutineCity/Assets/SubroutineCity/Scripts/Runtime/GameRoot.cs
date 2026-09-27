@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using SubroutineCity.City;
 using SubroutineCity.Core.Debugging;
 using SubroutineCity.Core.Editing;
+using SubroutineCity.Core.Launch;
 using SubroutineCity.Core.Localization;
 using SubroutineCity.Core.Progress;
 using SubroutineCity.Core.Protocol;
@@ -13,7 +14,7 @@ using UnityEngine;
 
 namespace SubroutineCity
 {
-    public enum GameState { Connecting, Offline, Menu, Level }
+    public enum GameState { Connecting, NeedsJdk, Offline, Menu, Level }
 
     public enum LeftTab { Code, Brief, Contract }
 
@@ -29,7 +30,8 @@ namespace SubroutineCity
         private const float CheckDelaySeconds = 1.1f;
         private const float DraftSaveDelaySeconds = 2f;
 
-        private readonly LocalServerLauncher _launcher = new LocalServerLauncher();
+        private LaunchPipeline _pipeline;
+        private System.Threading.CancellationTokenSource _launchCancel;
         private GameUI _ui;
         private int _checkedVersion = -1;
         private int _seenVersion = -1;
@@ -42,7 +44,11 @@ namespace SubroutineCity
         public ProgressState Progress { get; private set; }
         public ApiClient Api { get; private set; }
         public CityView City { get; private set; }
-        public LocalServerLauncher Launcher => _launcher;
+        /// <summary>Конвейер автозапуска локального сервера (null, если сервер внешний или уже работал).</summary>
+        public LaunchPipeline Pipeline => _pipeline;
+
+        /// <summary>Журнал автозапуска и сервера для экрана ошибок.</summary>
+        public string LaunchLog => _pipeline?.ServerLog ?? "";
 
         public List<LevelSummary> Levels { get; } = new List<LevelSummary>();
         public LevelSummary MenuSelection { get; set; }
@@ -114,12 +120,19 @@ namespace SubroutineCity
         private void OnApplicationQuit()
         {
             SaveDraft();
-            _launcher.Dispose();
+            StopLocalServer();
         }
 
         private void OnDestroy()
         {
-            _launcher.Dispose();
+            StopLocalServer();
+        }
+
+        private void StopLocalServer()
+        {
+            _launchCancel?.Cancel();
+            _pipeline?.Dispose();
+            _pipeline = null;
         }
 
         // ------------------------------------------------------------------ подключение
@@ -142,22 +155,19 @@ namespace SubroutineCity
             bool healthy = false;
             yield return Api.Health(ok => healthy = ok);
 
-            if (!healthy && IsLocalServer() && LocalServerLauncher.Supported && !_launcher.Running)
+            if (!healthy && IsLocalServer() && LocalServerLauncher.Supported)
             {
-                StatusMessage = Ru.Ui.StartingServer;
-                if (_launcher.TryStart(PortOf(Api.BaseUrl), Progress.RepositoryPath, out string error))
+                StopLocalServer();
+                _pipeline = new LaunchPipeline(LocalServerLauncher.Options(Progress.RepositoryPath, PortOf(Api.BaseUrl)));
+                _launchCancel = new System.Threading.CancellationTokenSource();
+                yield return Await(_pipeline.RunAsync(_launchCancel.Token));
+                if (_pipeline.Stage == LaunchStage.NeedsJdk)
                 {
-                    for (int attempt = 0; attempt < 40 && !healthy && _launcher.Running; attempt++)
-                    {
-                        yield return new WaitForSecondsRealtime(0.75f);
-                        yield return Api.Health(ok => healthy = ok);
-                    }
-                    if (!healthy) OfflineDetail = "Сервер запущен, но не отвечает. Журнал сервера — ниже.";
+                    State = GameState.NeedsJdk;
+                    yield break;
                 }
-                else
-                {
-                    OfflineDetail = error;
-                }
+                healthy = _pipeline.Stage == LaunchStage.Running;
+                if (!healthy) OfflineDetail = _pipeline.Error;
             }
             if (!healthy)
             {
@@ -182,6 +192,37 @@ namespace SubroutineCity
                 if (Progress.IsCompleted(level.Id)) City.MarkCompleted(level.Id);
             MenuSelection = Levels.Find(l => !Progress.IsCompleted(l.Id)) ?? (Levels.Count > 0 ? Levels[0] : null);
             State = GameState.Menu;
+        }
+
+        /// <summary>Игрок согласился: скачать Temurin 21 (с проверкой SHA-256), собрать и запустить сервер.</summary>
+        public void InstallJdk()
+        {
+            if (_pipeline == null || State != GameState.NeedsJdk) return;
+            StartCoroutine(InstallJdkRoutine());
+        }
+
+        private IEnumerator InstallJdkRoutine()
+        {
+            State = GameState.Connecting;
+            yield return Await(_pipeline.InstallJdkAndRunAsync(_launchCancel.Token));
+            if (_pipeline.Stage != LaunchStage.Running)
+            {
+                OfflineDetail = _pipeline.Error;
+                State = GameState.Offline;
+                yield break;
+            }
+            yield return Connect();
+        }
+
+        /// <summary>Ожидание задачи конвейера с обновлением строки статуса каждый кадр.</summary>
+        private IEnumerator Await(System.Threading.Tasks.Task task)
+        {
+            while (!task.IsCompleted)
+            {
+                StatusMessage = _pipeline.Message;
+                yield return null;
+            }
+            StatusMessage = _pipeline.Message;
         }
 
         private bool IsLocalServer()
