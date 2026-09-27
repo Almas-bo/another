@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Проверка компиляции Unity-клиента вне Unity: те же исходники, C# 9 и .NET Standard 2.1, что у Unity 2021.3 LTS,
+    против reference-сборок UnityEngine 2021.3 (NuGet UnityEngine.Modules). Шейдеры здесь не компилируются.
+    Запуск: dotnet build unity/Verify
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CS0649</NoWarn>
+    <AssemblyName>SubroutineCity.Verify</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../SubroutineCity/Assets/SubroutineCity/Scripts/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.33" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

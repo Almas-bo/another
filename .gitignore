@@ -1,3 +1,16 @@
 target/
 *.iml
 .idea/
+
+# .NET-проекты проверки клиента
+unity/**/bin/
+unity/**/obj/
+
+# Unity (если проект открыт прямо в unity/SubroutineCity)
+unity/SubroutineCity/Library/
+unity/SubroutineCity/Temp/
+unity/SubroutineCity/Logs/
+unity/SubroutineCity/UserSettings/
+unity/SubroutineCity/Build/
+unity/SubroutineCity/*.csproj
+unity/SubroutineCity/*.sln

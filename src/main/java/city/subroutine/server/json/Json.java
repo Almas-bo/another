@@ -85,7 +85,7 @@ public final class Json {
                 case '\b' -> out.append("\\b");
                 case '\f' -> out.append("\\f");
                 default -> {
-                    if (c < 0x20 || c == ' ' || c == ' ') {
+                    if (c < 0x20 || c == '\u2028' || c == '\u2029') {
                         out.append(String.format("\\u%04x", (int) c));
                     } else {
                         out.append(c);
