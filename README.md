@@ -1,170 +1,214 @@
-# Subroutine City — CodeRunnerService
+# Subroutine City
 
-Изолятор исполнения Java-кода игрока. Модуль принимает исходный код строкой и выполняет его по шагам:
+Обучающая инженерная игра: город-мегаполис работает на Java-коде игрока. Каждый район города — уровень,
+каждое здание — тест. Код компилируется и исполняется в изолированной песочнице, а город реагирует
+на результат. Прошедшие тесты светятся, исключения вызывают глитч, бесконечные циклы замораживают
+трафик, взаимные блокировки показываются цепями между потоками, а утечки памяти раскаляют тепловую
+карту района.
 
-1. компилирует в памяти через `javax.tools.JavaCompiler`;
-2. статически проверяет байткод по белому списку API;
-3. загружает код в изолированный `ClassLoader`;
-4. прогоняет набор тестов уровня с лимитами времени, памяти и потоков;
-5. возвращает структурированный `ExecutionResult`: статусы тестов, метрики CPU и аллокаций, стек-трейсы, снимки потоков.
+Весь интерфейс и все сообщения — на русском. Код игрока и контракты уровней — на английском, как в индустрии.
 
-Java 21, без внешних runtime-зависимостей. JUnit 5 нужен только для тестов.
+```
+┌──────────────── Unity-клиент (C#) ────────────────┐      HTTP/JSON       ┌────────── Сервер (Java 21) ──────────┐
+│ 3D-город: районы-уровни, здания-тесты, шейдеры    │  ─────────────────▶  │ GameServer (API v1)                  │
+│ IDE: подсветка, автодополнение, ошибки javac      │  /levels /run        │ CodeRunnerService                    │
+│ Отладчик: шаги вперёд/назад по трассе             │  /check /debug       │   одноразовый JVM-процесс-песочница: │
+│ Инспектор, результаты, вывод программы            │  ◀─────────────────  │   javac в памяти → проверка байткода │
+│ Прогресс, черновики, автозапуск сервера           │  ExecutionResult     │   → изолированный ClassLoader → тесты│
+└───────────────────────────────────────────────────┘                      │ JDI-запись трассы для отладчика      │
+                                                                           └──────────────────────────────────────┘
+```
+
+## Быстрый старт
+
+### 1. Сервер песочницы
+
+Нужен **JDK 21+** (именно JDK: серверу нужен javac). Maven не обязателен.
 
 ```bash
-mvn test                                    # 52 теста, включая сквозные с реальными процессами
-mvn -q compile
-java -cp target/classes city.subroutine.sandbox.cli.RunnerCli powergrid-01 examples/powergrid/PowerGrid.java
+./scripts/build.sh          # Windows: scripts\build.bat      — сборка в target/classes
+./scripts/run-server.sh     # Windows: scripts\run-server.bat — http://127.0.0.1:8787
+```
+
+Проверка без Unity — консольный прогон решения:
+
+```bash
 java -cp target/classes city.subroutine.sandbox.cli.RunnerCli powergrid-01 examples/powergrid/PowerGridBuggy.java
-java -cp target/classes city.subroutine.sandbox.cli.RunnerCli traffic-01  examples/traffic/SectorTrafficCounterRacy.java
 ```
 
-## Ключевое архитектурное решение: процесс, а не поток
+### 2. Игра в Unity
 
-В Java 21 `SecurityManager` отключён (JEP 411), а `Thread.stop()` бросает `UnsupportedOperationException`.
-Отсюда два следствия:
+Проверенные целевые версии: **Unity 2021.3 LTS, 2022.3 LTS, Unity 6** (Built-in Render Pipeline).
 
-- внутри одного JVM нельзя прервать зависший `while (true)`: поток игрока будет жечь CPU вечно;
-- нельзя ограничить кучу отдельному `ClassLoader`: `new long[1 << 30]` положит весь сервер.
+**Вариант А — открыть проект из репозитория** (сервер запустится сам):
 
-Поэтому каждый запуск исполняется в **одноразовом JVM-процессе**. Процесс даёт жёсткие гарантии:
-`-Xmx`, `-XX:+ExitOnOutOfMemoryError` и `destroyForcibly()` по таймауту. Задержку старта (~1 с на JVM и javac)
-скрывает пул заранее прогретых воркеров. Каждый воркер используется ровно один раз.
+1. Соберите сервер: `scripts/build.sh` (или `build.bat`).
+2. Unity Hub → **Add → Add project from disk** → папка `unity/SubroutineCity`.
+   Если версия редактора другая, Hub предложит открыть проект в вашей — соглашайтесь.
+3. Откройте любую сцену (или пустую) и нажмите **Play**.
+
+Игра соберёт себя кодом: префабы и настройка сцены не нужны. Если сервер не запущен, клиент сам
+стартует его из `target/classes` (нужны `java` в PATH или `JAVA_HOME`).
+
+**Вариант Б — в своём проекте:**
+
+1. Создайте проект по шаблону **3D (Built-In Render Pipeline)**.
+2. Скопируйте папку `unity/SubroutineCity/Assets/SubroutineCity` в `Assets/` вашего проекта.
+3. Запустите сервер: `scripts/run-server.sh`. Либо укажите путь к репозиторию в игре:
+   «Настройки» → «Путь к репозиторию».
+4. Нажмите **Play**.
+
+Unity 2022+ по умолчанию запрещает HTTP-запросы. Скрипт `Editor/ProjectSetup.cs` разрешает их
+автоматически (`Allow downloads over HTTP = Always allowed`), потому что сервер локальный.
+Если игра пишет «Unity запретил HTTP-запрос», включите эту настройку вручную:
+Project Settings → Player → Other Settings.
+
+### Управление
+
+| Действие | Клавиши |
+|---|---|
+| Запуск кода в песочнице | **F5** |
+| Отладка выбранного теста (запись трассы) | **F6** |
+| Точка останова на строке курсора | **F9** или щелчок по номеру строки |
+| Шаг с обходом / назад | **F10** / **Shift+F10** |
+| Шаг внутрь / выйти из метода | **F11** / **Shift+F11** |
+| До точки останова / назад до точки | **F8** / **Shift+F8** |
+| Автодополнение | **Ctrl+Space** (открывается и само при наборе) |
+| Закомментировать строки | **Ctrl+/** |
+| Отмена / повтор | **Ctrl+Z** / **Ctrl+Y** |
+| Камера | перетаскивание — вращение, колесо — приближение, щелчок по зданию — инспектор теста |
+
+Код проверяется в фоне через секунду после последнего изменения: ошибки javac подчёркиваются,
+а при наведении показывается пояснение на русском. Черновики сохраняются автоматически.
+
+## Кампания
+
+| # | Уровень | Чему учит | Типичная ошибка → что видит игрок |
+|---|---|---|---|
+| 1 | Энергосеть: суммарная нагрузка | граничные случаи, переполнение, аллокации в горячем цикле | сумма в `int` → «ожидалось 4294967299, получено 3»; стрим с boxing → 79 МБ аллокаций при бюджете 16 КБ |
+| 2 | Водозабор: закрыть все задвижки | try-with-resources, проброс исключений, suppressed | `close()` в `finally` маскирует основную ошибку |
+| 3 | Склад: принцип подстановки Лисков | контракт интерфейса, пред- и постусловия | исключение вместо `false` ломает «диспетчера», написанного для любого `Storage` |
+| 4 | Телеметрия: кэш без утечек | утечки памяти, LRU | `HashMap` без вытеснения → `MEMORY_LIMIT_EXCEEDED` на 96 МБ, тепловая карта раскалена |
+| 5 | Транспорт: потокобезопасный счётчик | гонки данных, атомарные операции | `count++` теряет около 60 % событий |
+| 6 | Энергобанк: переводы без deadlock | порядок захвата замков | встречные переводы → `DEADLOCK`, цепи ожидания между потоками |
+
+Уровни устроены без «заполни пропуск». Контракт задаёт только внешнюю форму (сигнатуру или
+интерфейс API), а класс игрок пишет целиком. Эталонные и ошибочные решения лежат в `examples/`.
+
+## Что показывает город
+
+| Статус | Визуальное событие (шейдеры и эффекты) |
+|---|---|
+| `PASSED` | здание ровно светится зелёным |
+| `FAILED` | красное мерцание, разрывы сканлайнов |
+| `ERROR` (исключение) | сильный глитч: смещение вершин, хроматическая аберрация кадра |
+| `TIMEOUT` | янтарный иней, трафик к району замирает на месте |
+| `DEADLOCK` | вокруг здания появляются опоры-потоки. Фиолетовые цепи показывают цикл ожидания, серые — потоки, которые ждут участников цикла |
+| `MEMORY_LIMIT_EXCEEDED` | тепловая карта в максимуме, волна перегрева по земле |
+| `THREAD_LIMIT_EXCEEDED` | шторм частиц |
+| `POLICY_VIOLATION` | тревога гексагонального купола-файрвола над районом |
+| `COMPILATION_ERROR` | район обесточен, здания — полупрозрачный каркас |
+
+Тепловая карта строится из реальных аллокаций каждого теста по логарифмической шкале от 1 КБ до 256 МБ.
+
+## Архитектура
+
+### Сервер (Java 21, без runtime-зависимостей)
+
+- **`sandbox`** — изолятор исполнения. В Java 21 нет `SecurityManager`, а `Thread.stop()`
+  не работает, поэтому каждый запуск идёт в одноразовом JVM-процессе с `-Xmx` и
+  `-XX:+ExitOnOutOfMemoryError`, с уничтожением по таймауту. Внутри процесса код проходит путь
+  javac в памяти (`-proc:none`) → статическая проверка байткода по белому списку с учётом иерархии
+  типов → изолированный `ClassLoader` → тесты, каждый в своём потоке с лимитом времени.
+  Deadlock обнаруживается через `ThreadMXBean`. Результаты передаются хосту потоково, поэтому
+  при OOM ничего не теряется. Подробности модели безопасности — ниже.
+- **Отладчик** — воркер запускается под JDWP (`server=n`, подключение к хосту без гонки за порт).
+  Хост через JDI ставит точки останова на все строки классов игрока и записывает шаги: строку,
+  глубину стека и локальные переменные. Методы объектов игрока при этом не вызываются, значения
+  читаются только из полей. Лимит — 5000 шагов, после него программа дорабатывает на полной скорости.
+- **`server`** — `GameServer` на `com.sun.net.httpserver` и собственный JSON-кодек.
+  По умолчанию слушает только `127.0.0.1`.
+
+API v1:
 
 ```
- Движок (UE5/Unity)  ──gRPC/Protobuf──▶  Хост: DefaultCodeRunnerService
-                                            │  RequestValidator (размер, пакеты)
-                                            │  WorkerPool (прогретые одноразовые процессы)
-                                            │  ExecutionSession (дедлайны по фазам, сборка результата)
-                                            ▼
-                         stdin: REQUEST ─▶ ┌──────────────── процесс-песочница (java -Xmx128m …) ───────────────┐
-                                           │ WorkerMain: stdout = протокол; System.out/err/in игрока подменены    │
-                                           │  1. InMemoryCompiler   javac в памяти, -proc:none                    │
-                                           │  2. BytecodeVerifier   constant pool → белый список + иерархия      │
-                                           │  3. SandboxClassLoader байткод из памяти, фильтр делегирования       │
-                                           │  4. TargetBinding      проверка контракта уровня → MethodHandle      │
-                                           │  5. TestCaseExecutor   поток на тест, таймаут, ThreadMXBean-метрики  │
-                                           │     ThreadWatchdog     лимит потоков → halt                          │
-                         stdout: кадры ◀── │  COMPILATION · POLICY · SUITE_STARTED · TEST_RESULT×N · FINISHED    │
-                                           └──────────────────────────────────────────────────────────────────────┘
+GET  /api/v1/health
+GET  /api/v1/levels                 кампания: уровни и их тесты
+GET  /api/v1/levels/{id}            задание, требования, текст контракта, лимиты
+POST /api/v1/levels/{id}/run        {"code"}            → {"result": ExecutionResult}
+POST /api/v1/levels/{id}/check      {"code"}            → {"result"} — компиляция, байткод, контракт, без тестов
+POST /api/v1/levels/{id}/debug      {"code", "testId"}  → {"result", "trace": DebugTrace}
 ```
 
-Результаты тестов передаются хосту **потоково**, сразу после каждого теста. Если процесс убит OOM или сторожем
-потоков, уже пройденные тесты не теряются. Хост определяет, на каком тесте произошёл сбой, и помечает
-оставшиеся как `SKIPPED`.
+Ошибки API возвращаются в формате `{"error": {"code", "message"}}` с HTTP-статусами 400/404/405/413/500.
 
-## Модель безопасности (эшелоны)
+### Клиент (Unity, C# 9)
+
+- **`SubroutineCity.Core`** (asmdef с `noEngineReferences`) — логика без UnityEngine: JSON,
+  модели API, русская локализация и пояснения к кодам javac, лексер Java, модель редактора
+  (курсор, выделение, отмена, автоотступы), автодополнение, навигатор трассы (шаги в обе стороны,
+  точки останова, изменившиеся переменные), граф deadlock, раскладка города, прогресс.
+- **`SubroutineCity.Runtime`** — MonoBehaviour-слой: сеть (UnityWebRequest), автозапуск сервера,
+  3D-город (процедурные меши, шейдеры через `MaterialPropertyBlock`), интерфейс на IMGUI.
+  IMGUI выбран потому, что не требует ни ассетов, ни пакетов и работает при любой системе ввода.
+- **Шейдеры** (`Resources/Shaders`) — unlit ShaderLab/HLSL: `Hologram`, `Ground`, `EnergyLine`,
+  `Dome`, `Particle`, `Sky`, `PostFx`. Каркасный режим инспектора строится на барицентрических
+  координатах в UV2, без геометрического шейдера, поэтому работает и на Metal.
+
+## Проверка и тесты
+
+```bash
+mvn test                                          # 87 тестов сервера: песочница, уровни, HTTP API, JSON
+dotnet test unity/Tests/SubroutineCity.Core.Tests # 46 тестов логики клиента на реальных ответах сервера
+dotnet build unity/Verify                         # весь C# клиента против UnityEngine 2021.3, C# 9, предупреждения = ошибки
+python3 unity/Verify/shaders/check_shaders.py     # HLSL всех шейдеров через glslangValidator (20 стадий)
+scripts/run-server.sh &  dotnet run --project unity/Tests/SubroutineCity.E2E   # сквозной сценарий клиент ↔ сервер
+```
+
+`unity/Tests/SubroutineCity.Core.Tests/Fixtures` — ответы, записанные с настоящего сервера.
+Это контракт API между Java и C#.
+
+### Что проверено вне Unity, а что нет
+
+- **Проверено здесь.** Весь C#-код компилируется против reference-сборок UnityEngine 2021.3.
+  Логика клиента покрыта тестами. HLSL-часть шейдеров компилируется в SPIR-V через glslang.
+  Игровой цикл клиента проходит сквозной тест против живого сервера.
+- **Не проверено здесь.** Сама сцена не запускалась в редакторе Unity: внешний вид, производительность
+  и компиляция ShaderLab-обёрток шейдеров под конкретные графические API (DX11/Metal/Vulkan) проверяются
+  только при первом запуске в Unity. `Editor/ProjectSetup.cs` (13 строк, Unity 2022+ API) не компилировался:
+  на NuGet нет UnityEditor такой версии.
+- **URP/HDRP.** Шейдеры unlit и рисуются в URP. Постобработка (`OnRenderImage`: bloom, аберрация)
+  работает только в Built-in RP.
+
+## Модель безопасности песочницы
 
 | # | Эшелон | Что закрывает |
-|---|--------|---------------|
-| 1 | `RequestValidator` | Размер исходников, пакет игрока, пересечение с API и наборами тестов |
-| 2 | javac `-proc:none` | Исполнение чужих процессоров аннотаций на этапе компиляции |
-| 3 | `BytecodeVerifier` | Любую ссылку на тип или член вне белого списка: файлы, сеть, NIO, процессы, рефлексию, `ClassLoader`, `System.exit/getenv/getProperty/setOut`, `Unsafe`, JNI, `ServiceLoader`, `ThreadGroup`, `Thread.getAllStackTraces`. Проверка идёт **до загрузки**, ни одна инструкция не исполняется |
-| 4 | Проверка иерархии | Обход через подкласс: `class T extends Thread` → `T.getAllStackTraces()` проверяется по правилам всех супертипов |
-| 5 | `SandboxClassLoader` | Делегирует только разрешённые типы, ресурсы недоступны |
-| 6 | Процесс JVM | `-Xmx`, `ExitOnOutOfMemoryError` (игрок не может «проглотить» OOM), `MaxMetaspaceSize`, чистое окружение (`env` очищен), свой `tmpdir`, `DisableAttachMechanism` |
-| 7 | Таймауты | Тест в отдельном потоке → TIMEOUT/DEADLOCK → `Runtime.halt`; хостовый дедлайн → `destroyForcibly` |
-| 8 | `ThreadWatchdog` | Бомбу из потоков → `THREAD_LIMIT_EXCEEDED` → `halt` |
-| 9 | ОС (продакшен) | `RunnerConfig.commandPrefix`: nsjail / bubblewrap / firejail, cgroup v2 (`pids.max`, `memory.max`, `cpu.max`), сеть в пустом namespace, read-only FS, seccomp |
+|---|---|---|
+| 1 | `RequestValidator` | размер исходников, пакет игрока, пересечение с API и наборами тестов |
+| 2 | javac `-proc:none` | исполнение чужих процессоров аннотаций |
+| 3 | `BytecodeVerifier` | любую ссылку вне белого списка: файлы, сеть, NIO, процессы, рефлексию, `ClassLoader`, `System.exit/getenv/getProperty`, `Unsafe`, JNI, `ThreadGroup`. Проверка идёт **до загрузки** класса |
+| 4 | Проверка иерархии | обход через подкласс: `class T extends Thread` → `T.getAllStackTraces()` |
+| 5 | `SandboxClassLoader` | делегирует только разрешённые типы, ресурсы недоступны |
+| 6 | Процесс JVM | `-Xmx`, `ExitOnOutOfMemoryError`, `MaxMetaspaceSize`, чистое окружение, свой `tmpdir` |
+| 7 | Таймауты | зависший тест → `TIMEOUT`/`DEADLOCK` → `halt`; хостовый дедлайн → `destroyForcibly` |
+| 8 | `ThreadWatchdog` | бомба из потоков → `THREAD_LIMIT_EXCEEDED` |
+| 9 | ОС (для публичного сервера) | `RunnerConfig.commandPrefix`: nsjail/bubblewrap, cgroup (`pids.max`, `memory.max`), сеть в пустом namespace |
 
-Эшелоны 1–8 реализованы и покрыты тестами. Эшелон 9 обязателен для продакшена: это системная защита на случай
-уязвимости в JVM или ошибки в белом списке. Модуль подготовлен к нему через `commandPrefix`. Пример:
-
-```java
-RunnerConfig.defaults().withCommandPrefix(List.of(
-        "nsjail", "--quiet", "--disable_proc", "--iface_no_lo",
-        "--cgroup_pids_max", "64", "--cgroup_mem_max", "268435456", "--"));
-```
-
-### Белый список (`SandboxPolicy`)
-
-- **Разрешены пакеты целиком:** `java.lang`, `java.lang.annotation`, `java.lang.ref`, `java.math`, `java.text`,
-  `java.time[.format|.temporal]`, `java.util`, `java.util.function`, `java.util.stream`, `java.util.regex`,
-  `java.util.concurrent[.atomic|.locks]`, а также API-пакеты уровня.
-- **Ограничены до списка членов:** `System` (время, `arraycopy`, `out/err`), `Runtime` (информация о ресурсах),
-  `Class` (интроспекция без рефлексии), `PrintStream` (печать).
-- **Запрещены отдельные члены:** `Thread.getAllStackTraces/stop/getContextClassLoader/...`, `Integer.getInteger`
-  и аналоги (обход `System.getProperty`).
-- **Разрешено только для `invokedynamic`:** лямбды, конкатенация строк, records, `switch` по шаблонам.
-- Всё остальное запрещено по умолчанию.
-
-## Контракты уровней (без «заполни пропуск»)
-
-Игрок пишет класс целиком. Контракт задаёт только внешнюю форму:
-
-- `EntryPoint.MethodEntry("city.player.PowerGrid", "totalLoad", List.of("int[]"), "long")`: точная сигнатура.
-  Проверяются public, тип возврата и то, что метод объявлен в коде игрока, а не унаследован.
-- `EntryPoint.ContractEntry("city.player.SectorTrafficCounter", "…api.TrafficCounter")`: класс реализует
-  интерфейс уровня. Так проверяется ООП-дизайн через поведение (LSP/OCP).
-
-Набор тестов (`TestSuite`) — доверенный код гейм-дизайнера. Он лежит вне пакета API, поэтому игрок
-не может на него сослаться и подсмотреть ответы; это проверяет тест `levelSuiteIsNotVisibleToPlayer`.
-Что доступно набору тестов через `TestContext`:
-
-| Метод | Назначение |
-|-------|------------|
-| `invoke(args…)` | Вызов с упаковкой аргументов. Исключение игрока пробрасывается как есть |
-| `handle()` | Точный `MethodHandle` для горячих циклов: `(long) h.invokeExact(data)` без boxing |
-| `newInstance(Contract.class)` | Новый объект игрока, приведённый к интерфейсу |
-| `measureAllocatedBytes(action)` | Аллокации текущего потока: ловит boxing, стримы, копии в горячих циклах |
-
-Для проверок используются `Check.equal / throwsType / atMost / isTrue`. Сообщения на русском, `expected`/`actual`
-уходят в diff-панель IDE.
-
-## Результат
-
-`ExecutionResult` содержит:
-
-- `status`: `SUCCESS`, `TESTS_FAILED`, `COMPILATION_ERROR`, `POLICY_VIOLATION`, `CONTRACT_VIOLATION`, `TIMEOUT`,
-  `DEADLOCK`, `MEMORY_LIMIT_EXCEEDED`, `THREAD_LIMIT_EXCEEDED`, `REJECTED`, `SANDBOX_FAILURE`;
-- `diagnostics`: ошибки javac с координатами и стабильным кодом (`compiler.err.expected`), по которому клиент
-  подставляет русский текст;
-- `policyViolations`: правило, класс и ссылка (`java.lang.System#exit`);
-- `tests[]`: для каждого теста статус, сообщение, expected/actual, `ErrorReport` (стек без кадров обвязки,
-  `playerCode` на каждом кадре, цепочка причин, suppressed), метрики (`wall`, `cpu`, `allocatedBytes`, `peakHeap`,
-  GC), перехваченный вывод, `ThreadSnapshot[]` при таймауте или deadlock (состояние, монитор, владелец монитора,
-  стек) и `leakedThreads` (незакрытый `ExecutorService`);
-- `metrics`: сводные метрики и код завершения процесса.
-
-`ThreadSnapshot` — готовые данные для Deadlock Visualizer: граф «поток → ждёт монитор → владелец».
-`ErrorReport.firstPlayerFrame()` показывает, какую строку подсветить в IDE и какой узел города «взорвать».
-
-## Протокол хост ↔ воркер
-
-Кадры `[u1 type][s4 length][payload]`, полезная нагрузка — ручной бинарный кодек (`WireCodec`).
-Java-сериализация не используется: хост читает поток процесса, в котором исполнялся недоверенный код.
-Все длины ограничены, а повреждённый кадр даёт `ProtocolException` и `SANDBOX_FAILURE`.
-Сообщения JVM (например, о OOM) идут в stderr (`-XX:+DisplayVMOutputToStderr`), поэтому stdout принадлежит
-только протоколу.
-
-## Замеры: почему им можно верить
-
-- `-XX:TieredStopAtLevel=1`: только C1, без escape analysis. Лишние аллокации не «исчезают» под оптимизатором,
-  и тест на горячий цикл детерминирован. Эталонное решение даёт 0 байт на 5000 вызовов, решение со стримом
-  и boxing — ~80 МБ.
-- `-XX:+UseSerialGC`: один поток GC, стабильные паузы и счётчики.
-- CPU и аллокации снимаются изнутри потока теста (`com.sun.management.ThreadMXBean`).
-- Аллокации в потоках, созданных игроком, в `allocatedBytes` теста не входят. Их видно по `peakHeapBytes` и GC.
-
-## Известные ограничения
-
-- Лимит потоков проверяется опросом раз в 2 мс. Всплеск короче интервала, который сразу завершается, не
-  ловится. Жёсткая граница — `pids.max` на уровне ОС (эшелон 9).
-- `peakHeapBytes` — сумма пиков пулов кучи, то есть оценка сверху.
-- `leakedThreads` носит информационный характер. Уровень, для которого утечка — провал, должен проверять
-  это сам (например, требовать `AutoCloseable` и вызывать `close()`).
+Эшелоны 1–8 реализованы и покрыты тестами. Для локальной игры их достаточно. Если сервер будет
+открыт в сеть для чужого кода, эшелон 9 и аутентификация обязательны.
 
 ## Структура
 
 ```
 src/main/java/city/subroutine/
-  sandbox/api        контракты: CodeRunnerService, ExecutionRequest/Result, модели
-  sandbox/compiler   InMemoryCompiler (JavaCompiler + ForwardingJavaFileManager)
-  sandbox/policy     ClassFileScanner, SandboxPolicy, BytecodeVerifier
-  sandbox/protocol   кадры и кодеки хост ↔ воркер
-  sandbox/worker     WorkerMain, SandboxClassLoader, TestCaseExecutor, ThreadWatchdog, JvmProbe
-  sandbox/host       DefaultCodeRunnerService, WorkerPool, WorkerLauncher, ExecutionSession
-  sandbox/testing    API для авторов уровней: TestSuite, TestContext, Check
-  sandbox/report     RussianReportFormatter (эталонная таблица ru-RU)
-  levels/            LevelCatalog + уровни powergrid-01, traffic-01
-examples/            эталонные, ошибочные и «злонамеренные» решения игрока
+  sandbox/       изолятор: api, compiler, policy, protocol, worker, host (+ host/debug — JDI), testing, report, cli
+  server/        GameServer, ApiMapper, JSON
+  levels/        LevelCatalog и шесть уровней: API-пакеты игрока и наборы тестов
+examples/        эталонные, ошибочные и «злонамеренные» решения игрока
+scripts/         сборка и запуск сервера без Maven (sh/bat)
+unity/
+  SubroutineCity/                  Unity-проект (Assets/SubroutineCity: Scripts/Core, Scripts/Runtime, Resources/Shaders, Editor)
+  Tests/SubroutineCity.Core.Tests  NUnit-тесты логики клиента + JSON-эталоны сервера
+  Tests/SubroutineCity.E2E         сквозная проверка клиент ↔ сервер
+  Verify/                          компиляция клиента против UnityEngine; проверка HLSL
 ```
